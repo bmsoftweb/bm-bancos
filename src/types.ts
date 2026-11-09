@@ -43,6 +43,7 @@ export interface ConfigConta {
   instrucoes?: string;
   localPagamento?: string;
   pixHibrido?: boolean;
+  modeloImpressao?: 'folha' | 'carne';
   [campo: string]: unknown;
 }
 

@@ -264,7 +264,13 @@ const FormConta: React.FC<{
             <label className={ROTULO}>Dias para baixa</label>
             <NumberField {...confNumero('diasBaixa')} />
           </div>
-          <Texto rotulo="Local de pagamento" maxLength={80} {...confTexto('localPagamento')} className="col-span-2 lg:col-span-6" dica="Vazio = Pagável em qualquer banco até o vencimento" />
+          <Selecao
+            rotulo="Modelo de impressão"
+            {...confTexto('modeloImpressao')}
+            className="col-span-2"
+            opcoes={[{ valor: '', rotulo: 'Folha A4 (um boleto por folha)' }, { valor: 'carne', rotulo: 'Carnê (três por folha, com canhoto)' }]}
+          />
+          <Texto rotulo="Local de pagamento" maxLength={80} {...confTexto('localPagamento')} className="col-span-2 lg:col-span-4" dica="Vazio = Pagável em qualquer banco até o vencimento" />
           <Area rotulo="Instruções impressas" rows={3} {...confTexto('instrucoes')} className="col-span-2 lg:col-span-6" dica="Até 4 linhas" />
         </div>
       </Secao>

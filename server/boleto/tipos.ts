@@ -49,6 +49,8 @@ export interface ConfigConta {
   localPagamento?: string;
   /** Pede o PIX do boleto híbrido no registro pela API, quando o banco oferece */
   pixHibrido?: boolean;
+  /** PDF: 'folha' (um por A4, padrão) ou 'carne' (três por A4, com canhoto) */
+  modeloImpressao?: 'folha' | 'carne';
 }
 
 /** Linha de ban_contas pronta para uso */
