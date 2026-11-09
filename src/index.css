@@ -1,0 +1,90 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Jost é a família padrão do painel (carregada em index.html).
+   Redefinir --font-sans faz o Tailwind aplicá-la em todo o app,
+   inclusive nas classes utilitárias font-sans. */
+@theme {
+  --font-sans: "Jost", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+}
+
+:root {
+  color-scheme: light;
+
+  /* Altura compartilhada pelo topo da sidebar e pelo header da área de
+     trabalho, para que a borda inferior dos dois fique na mesma linha. */
+  --altura-topo: 4.375rem; /* 70px */
+}
+
+:root.dark {
+  color-scheme: dark;
+}
+
+html, body {
+  min-height: 100%;
+  font-family: var(--font-sans);
+}
+
+/* ==========================================
+   CAMPOS DE ENTRADA (padrão visual global)
+   ==========================================
+   Mesmo padrão do meuConsultorioWeb: campos de digitação não têm moldura, só uma
+   barra de 2px na borda esquerda indicando se o campo é obrigatório (âmbar) ou
+   opcional (verde). O sinal de "obrigatório" é o atributo HTML required do próprio
+   campo — um campo exigido apenas pela validação em JavaScript aparece como opcional
+   até receber o atributo.
+
+   Ficam de fora os controles que não são campos de digitação: caixas de seleção,
+   opções, seletor de cor, envio de arquivo, deslizante e botões. */
+:where(input, select, textarea):where(:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]):not([type="range"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="image"]):not([type="hidden"])) {
+  border: 0 solid transparent !important;
+  border-left-width: 2px !important;
+  border-left-color: #10b981 !important; /* emerald-500 — campo opcional */
+  border-radius: 0 !important;
+}
+
+:where(input, select, textarea):where(:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]):not([type="range"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="image"]):not([type="hidden"])):where(:required) {
+  border-left-color: #f59e0b !important; /* amber-500 — campo obrigatório */
+}
+
+.dark input:where(:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]):not([type="range"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="image"]):not([type="hidden"])),
+.dark select:where(:not([type="hidden"])),
+.dark textarea:where(:not([type="hidden"])) {
+  border: 0 solid transparent !important;
+  border-left-width: 2px !important;
+  border-left-color: #10b981 !important;
+  border-radius: 0 !important;
+}
+
+.dark input:where(:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]):not([type="range"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="image"]):not([type="hidden"])):where(:required),
+.dark select:where(:not([type="hidden"])):where(:required),
+.dark textarea:where(:not([type="hidden"])):where(:required) {
+  border-left-color: #f59e0b !important;
+}
+
+/* Campo em foco: nenhuma moldura/anel, só o fundo um pouco mais escuro. O escurecimento
+   usa uma camada translúcida por cima (background-image) para funcionar sobre qualquer
+   fundo que o campo já tenha. O box-shadow zerado remove os anéis "focus:ring-*". */
+:where(input, select, textarea):where(:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]):not([type="range"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="image"]):not([type="hidden"])):focus {
+  outline: none !important;
+  box-shadow: none !important;
+  background-image: linear-gradient(rgba(0, 0, 0, 0.06), rgba(0, 0, 0, 0.06)) !important;
+}
+
+/* Tamanho dos campos escolhido em "Customizar layout" do formulário */
+@media (min-width: 64rem) {
+  .campo-span {
+    grid-column: span var(--span) / span var(--span);
+  }
+}
+.campo-altura :is(input:not([type='file']), select, textarea) {
+  height: var(--altura);
+}
+
+/* Barra de progresso sem total (ProgressoModal) */
+@keyframes progresso {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}

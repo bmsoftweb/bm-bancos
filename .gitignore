@@ -1,0 +1,8 @@
+node_modules
+dist
+.env
+/arquivos
+*.pfx
+*.p12
+dist-node
+.claude/
