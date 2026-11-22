@@ -51,6 +51,10 @@ export interface ConfigConta {
   pixHibrido?: boolean;
   /** PDF: 'folha' (um por A4, padrão) ou 'carne' (três por A4, com canhoto) */
   modeloImpressao?: 'folha' | 'carne';
+  /** Chave PIX que recebe as cobranças imediatas (PDV), nos bancos de server/bancos/pix.ts; preenchida = a conta cobra PIX */
+  chavePix?: string;
+  /** CNPJ do PSP na NFC-e, quando difere do banco (cooperativa de crédito); vazio = o da tabela */
+  cnpjPsp?: string;
 }
 
 /** Linha de ban_contas pronta para uso */
@@ -209,6 +213,14 @@ export interface ClienteApi {
     autenticacao: 'basic' | 'corpo';
     /** Campos a mais no form */
     extras?: Record<string, string>;
+    /** Corpo em JSON em vez de form (Efí) */
+    json?: boolean;
+    /** grant_type já vai na URL (Santander): não repete no corpo */
+    semGrantNoCorpo?: boolean;
+    /** Não manda o client_secret (Sicoob: acesso pelo certificado; o campo guarda o token do sandbox) */
+    semSegredo?: boolean;
+    /** Cabeçalhos a mais no pedido de token (Itaú) */
+    cabecalhos?: Record<string, string>;
   }): Promise<string>;
   pedir(opcoes: {
     metodo: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';

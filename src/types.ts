@@ -27,6 +27,14 @@ export interface Empresa {
 export interface Banco {
   codigo: string;
   nome: string;
+  /** Emite boleto (módulo de cobrança) */
+  boleto: boolean;
+  /** Cobra PIX imediato (API Pix) */
+  pix: boolean;
+  /** Nome da chave além do OAuth (gw-dev-app-key, apikey...); null = o banco não usa */
+  rotuloChave: string | null;
+  /** Nome do client_secret quando o banco chama de outro jeito; null = não usa */
+  rotuloSegredo?: string | null;
 }
 
 /** Padrões do boleto e campos próprios de cada banco (ban_contas.config) */
@@ -44,6 +52,8 @@ export interface ConfigConta {
   localPagamento?: string;
   pixHibrido?: boolean;
   modeloImpressao?: 'folha' | 'carne';
+  chavePix?: string;
+  cnpjPsp?: string;
   [campo: string]: unknown;
 }
 

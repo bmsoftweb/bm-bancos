@@ -7,10 +7,11 @@ import crypto from 'crypto';
 import { Request, Response, Router } from 'express';
 import { pool } from '../db.js';
 import { exigirUsuario, esquecerChaves, hashChave, PREFIXO_CHAVE } from '../auth.js';
-import { BANCOS, moduloDoBanco } from '../bancos/index.js';
+import { BANCOS } from '../bancos/index.js';
+import { cancelar as cancelarPix, cnpjDoPsp, cobrar as cobrarPix, consultar as consultarPix, PSPS } from '../bancos/pix.js';
 import { boletoPorReferencia, buscarBoleto, COMANDOS, Conflito, emitir, instruir, registrarNaApi } from '../boleto/boletos.js';
-import { carregarConta, esquecerCertificadoConta, linhaParaConta, SELECT_CONTA } from '../boleto/contas.js';
-import { carregarPfx } from '../boleto/certificado.js';
+import { carregarConta, clienteDaConta, contaPix, esquecerCertificadoConta, lerConta, linhaParaConta, SELECT_CONTA } from '../boleto/contas.js';
+import { carregarPem, carregarPfx } from '../boleto/certificado.js';
 import { cifrar } from '../boleto/cripto.js';
 import { dataHoraMysql } from '../boleto/datas.js';
 import { formatarLinha } from '../boleto/febraban.js';
@@ -22,7 +23,7 @@ import { buscarMovimentoApi, importarRetorno } from '../boleto/retorno.js';
 
 export function empresaDaRequisicao(req: Request): number {
   const id = req.usuario?.empresaId;
-  if (!id) throw new Error('Sessão sem empresa. Entre novamente.');
+  if (id == null) throw new Error('Sessão sem empresa. Entre novamente.'); // 0 é empresa válida
   return id;
 }
 
@@ -170,7 +171,9 @@ function valoresConta(c: any) {
     v[col] = x;
   }
   if ('descricao' in v && !v.descricao) throw new Error('Informe a descrição da conta.');
-  if ('banco_codigo' in v) moduloDoBanco(String(v.banco_codigo || ''));
+  if ('banco_codigo' in v && !BANCOS[String(v.banco_codigo)] && !PSPS[String(v.banco_codigo)]) {
+    throw new Error(`O banco ${v.banco_codigo || '(vazio)'} ainda não está implementado no BMBancos.`);
+  }
   if ('canal' in v && !['remessa', 'api'].includes(String(v.canal))) throw new Error('Canal deve ser remessa ou api.');
   if ('layout_cnab' in v && v.layout_cnab && !['240', '400'].includes(String(v.layout_cnab))) throw new Error('Layout CNAB deve ser 240 ou 400.');
   for (const n of ['ultimo_nosso_numero', 'ultima_remessa']) {
@@ -181,8 +184,28 @@ function valoresConta(c: any) {
 
 /** Problemas do cadastro para o banco escolhido (a tela mostra como alerta) */
 async function avisosConta(empresaId: number, id: number) {
-  const { conta, modulo } = await carregarConta(empresaId, id);
-  return modulo.validarConta(conta);
+  const { conta } = await lerConta(empresaId, id);
+  const modulo = BANCOS[conta.bancoCodigo];
+  const pix = String(conta.config.chavePix || '').trim();
+  // Conta só de PIX (sem convênio) não leva os avisos de boleto
+  const avisos = modulo && (conta.convenio || !pix) ? modulo.validarConta(conta) : [];
+  if (pix && !PSPS[conta.bancoCodigo]) avisos.push('Este banco ainda não cobra PIX no BMBancos: a chave PIX fica sem uso.');
+  return avisos;
+}
+
+/** O que a tela precisa saber de cada banco: boleto, PIX e o nome das credenciais extras */
+function bancosDisponiveis() {
+  return [...new Set([...Object.keys(BANCOS), ...Object.keys(PSPS)])].sort().map((codigo) => {
+    const psp = PSPS[codigo];
+    return {
+      codigo,
+      nome: BANCOS[codigo]?.nome || psp.nome,
+      boleto: !!BANCOS[codigo],
+      pix: !!psp,
+      rotuloChave: psp?.chave?.rotulo || (codigo === '001' ? 'Chave do aplicativo (gw-dev-app-key)' : null),
+      rotuloSegredo: psp?.rotuloSegredo,
+    };
+  });
 }
 
 export function criarRotas(): Router {
@@ -192,7 +215,7 @@ export function criarRotas(): Router {
   // Bancos e contas
   // =========================================================================
   r.get('/bancos', rota(async (_req, res) => {
-    res.json(Object.values(BANCOS).map((b) => ({ codigo: b.codigo, nome: b.nome })));
+    res.json(bancosDisponiveis());
   }));
 
   r.get('/contas', rota(async (req, res) => {
@@ -206,7 +229,7 @@ export function criarRotas(): Router {
     );
     res.json(linhas.map((l) => {
       const { e_cnpj: _1, e_razao_social: _2, e_logradouro: _3, e_numero: _4, e_complemento: _5, e_bairro: _6, e_cidade: _7, e_uf: _8, e_cep: _9, ...c } = l;
-      return { ...c, config: linhaParaConta(l).config, banco_nome: BANCOS[l.banco_codigo]?.nome || l.banco_codigo };
+      return { ...c, config: linhaParaConta(l).config, banco_nome: BANCOS[l.banco_codigo]?.nome || PSPS[l.banco_codigo]?.nome || l.banco_codigo };
     }));
   }));
 
@@ -241,12 +264,17 @@ export function criarRotas(): Router {
   r.put('/contas/:id/credenciais', exigirUsuario, rota(async (req, res) => {
     const empresaId = empresaDaRequisicao(req);
     const id = Number(req.params.id);
-    await carregarConta(empresaId, id);
+    await lerConta(empresaId, id);
     const c = req.body || {};
     if (!String(c.clientId || '').trim()) throw new Error('Informe o client_id.');
 
-    let certificado: { arquivo: Buffer; nome: string; senha: string; validade: string } | null = null;
-    if (c.certificadoBase64) {
+    // .pfx (com senha) ou PEM: certificado + chave emendados (Itaú, Inter), gravado cifrado e sem senha
+    let certificado: { arquivo: Buffer; nome: string; senha: string | null; validade: string } | null = null;
+    if (c.certificadoPem) {
+      const pem = String(c.certificadoPem);
+      const { info } = carregarPem(pem);
+      certificado = { arquivo: Buffer.from(cifrar(pem)!), nome: String(c.certificadoNome || 'certificado.pem').slice(0, 160), senha: null, validade: dataHoraMysql(info.validoAte) };
+    } else if (c.certificadoBase64) {
       if (!c.certificadoSenha) throw new Error('Informe a senha do certificado.');
       const arquivo = arquivoBase64(c.certificadoBase64);
       // Senha errada ou arquivo inválido falham aqui, antes de gravar
@@ -263,12 +291,12 @@ export function criarRotas(): Router {
          chave_aplicacao = COALESCE(VALUES(chave_aplicacao), chave_aplicacao),
          certificado_nome = COALESCE(VALUES(certificado_nome), certificado_nome),
          certificado = COALESCE(VALUES(certificado), certificado),
-         certificado_senha = COALESCE(VALUES(certificado_senha), certificado_senha),
+         certificado_senha = IF(VALUES(certificado) IS NULL, certificado_senha, VALUES(certificado_senha)),
          certificado_validade = COALESCE(VALUES(certificado_validade), certificado_validade),
          atualizado_em = VALUES(atualizado_em)`,
       [
         id, String(c.clientId).trim(), cifrar(c.clientSecret), cifrar(c.chaveAplicacao),
-        certificado?.nome ?? null, certificado?.arquivo ?? null, certificado ? cifrar(certificado.senha) : null, certificado?.validade ?? null, momento,
+        certificado?.nome ?? null, certificado?.arquivo ?? null, cifrar(certificado?.senha), certificado?.validade ?? null, momento,
       ],
     );
     esquecerTokens(id);
@@ -278,7 +306,7 @@ export function criarRotas(): Router {
 
   r.delete('/contas/:id/credenciais', exigirUsuario, rota(async (req, res) => {
     const id = Number(req.params.id);
-    await carregarConta(empresaDaRequisicao(req), id);
+    await lerConta(empresaDaRequisicao(req), id);
     await pool.query('DELETE FROM ban_credenciais WHERE conta_id = ?', [id]);
     esquecerTokens(id);
     esquecerCertificadoConta(id);
@@ -288,6 +316,32 @@ export function criarRotas(): Router {
   /** Retorno pela API: liquidações e baixas desde a última consulta */
   r.post('/contas/:id/movimento', rota(async (req, res) => {
     res.json({ success: true, ...(await buscarMovimentoApi(empresaDaRequisicao(req), Number(req.params.id))) });
+  }));
+
+  // =========================================================================
+  // PIX: cobrança imediata (PDV). Nada é gravado além do ban_log: quem cobra guarda o txid e a conta.
+  // =========================================================================
+  /** { valor, referencia?, descricao?, contaId?, expiracao? (s, padrão 600) } -> { contaId, cobranca } */
+  r.post('/pix/cobrancas', rota(async (req, res) => {
+    const b = req.body || {};
+    const valor = Math.round(Number(b.valor) * 100) / 100;
+    if (!(valor > 0)) throw new Error('Informe o valor da cobrança PIX.');
+    const expiracao = Math.min(86400, Math.max(60, Math.floor(Number(b.expiracao) || 600)));
+    const { conta, psp } = await contaPix(empresaDaRequisicao(req), Number(b.contaId) || undefined);
+    const cli = await clienteDaConta(conta, b.referencia ? String(b.referencia).slice(0, 60) : null);
+    const cobranca = await cobrarPix(psp, cli, conta, valor, expiracao, b.descricao ? String(b.descricao) : undefined);
+    // banco e cnpj: o módulo leva para o documento fiscal (NFC-e: grupo de cartão do PIX)
+    res.json({ success: true, contaId: conta.id, banco: psp.codigo, cnpj: cnpjDoPsp(psp, conta), cobranca });
+  }));
+
+  r.get('/pix/cobrancas/:conta/:txid', rota(async (req, res) => {
+    const { conta, psp } = await contaPix(empresaDaRequisicao(req), Number(req.params.conta));
+    res.json({ success: true, cobranca: await consultarPix(psp, await clienteDaConta(conta), conta, req.params.txid) });
+  }));
+
+  r.post('/pix/cobrancas/:conta/:txid/cancelar', rota(async (req, res) => {
+    const { conta, psp } = await contaPix(empresaDaRequisicao(req), Number(req.params.conta));
+    res.json({ success: true, cobranca: await cancelarPix(psp, await clienteDaConta(conta), conta, req.params.txid) });
   }));
 
   // =========================================================================

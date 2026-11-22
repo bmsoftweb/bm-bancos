@@ -138,7 +138,11 @@ export const incluirConta = (c: Partial<Conta>) => post<RespostaConta>('/contas'
 export const gravarConta = (id: number, c: Partial<Conta>) => put<RespostaConta>(`/contas/${id}`, c);
 export const gravarCredenciais = (
   id: number,
-  c: { clientId: string; clientSecret?: string; chaveAplicacao?: string; certificadoBase64?: string; certificadoNome?: string; certificadoSenha?: string },
+  c: {
+    clientId: string; clientSecret?: string; chaveAplicacao?: string;
+    /** .pfx com senha, ou PEM (certificado + chave emendados) */
+    certificadoBase64?: string; certificadoPem?: string; certificadoNome?: string; certificadoSenha?: string;
+  },
 ) => put<{ success: boolean }>(`/contas/${id}/credenciais`, c);
 export const removerCredenciais = (id: number) => pedir<{ success: boolean }>(`/contas/${id}/credenciais`, { method: 'DELETE' });
 export const buscarMovimento = (id: number) => post<{ success: boolean; novas: number; repetidas: number; semBoleto: number }>(`/contas/${id}/movimento`);

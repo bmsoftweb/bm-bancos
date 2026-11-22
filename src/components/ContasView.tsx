@@ -130,6 +130,7 @@ export const ContasView: React.FC<{ onMudou: () => void }> = ({ onMudou }) => {
       {credenciais && (
         <DialogoCredenciais
           conta={credenciais}
+          banco={bancos.find((b) => b.codigo === credenciais.banco_codigo)}
           onFechar={() => setCredenciais(null)}
           onGravou={(m) => {
             setCredenciais(null);
@@ -156,6 +157,9 @@ const FormConta: React.FC<{
   const [erro, setErro] = useState<string | null>(null);
   const cfg: ConfigConta = c.config || {};
   const novo = !inicial.id;
+  const banco = bancos.find((b) => b.codigo === c.banco_codigo);
+  // Sem banco escolhido mostra o cadastro de boleto; banco só de PIX esconde
+  const boleto = !banco || banco.boleto;
 
   const campo = (nome: keyof Conta) => ({
     value: String(c[nome] ?? ''),
@@ -196,7 +200,7 @@ const FormConta: React.FC<{
             rotulo="Banco"
             required
             {...campo('banco_codigo')}
-            opcoes={[{ valor: '', rotulo: 'Escolha…' }, ...bancos.map((b) => ({ valor: b.codigo, rotulo: `${b.codigo} — ${b.nome}` }))]}
+            opcoes={[{ valor: '', rotulo: 'Escolha…' }, ...bancos.map((b) => ({ valor: b.codigo, rotulo: `${b.codigo} — ${b.nome}${b.boleto ? '' : ' (só PIX)'}` }))]}
             className="col-span-2"
           />
           <div className="flex flex-col gap-1 justify-end">
@@ -206,12 +210,16 @@ const FormConta: React.FC<{
           <Texto rotulo={c.banco_codigo === '756' ? 'Posto' : 'DV agência'} maxLength={2} {...campo('agencia_dv')} />
           <Texto rotulo="Conta" required maxLength={12} {...campo('conta')} />
           <Texto rotulo="DV conta" maxLength={2} {...campo('conta_dv')} />
-          <Texto rotulo={c.banco_codigo === '756' ? 'Código do cliente' : 'Código do beneficiário'} maxLength={20} {...campo('beneficiario')} />
-          <Texto rotulo="DV beneficiário" maxLength={2} {...campo('beneficiario_dv')} />
-          <Texto rotulo="Convênio" maxLength={20} {...campo('convenio')} />
-          <Texto rotulo="Carteira" maxLength={5} {...campo('carteira')} />
-          {c.banco_codigo === '001' && <Texto rotulo="Variação da carteira" maxLength={3} {...confTexto('variacao')} />}
-          {c.banco_codigo === '756' && (
+          {boleto && (
+            <>
+              <Texto rotulo={c.banco_codigo === '756' ? 'Código do cliente' : 'Código do beneficiário'} maxLength={20} {...campo('beneficiario')} />
+              <Texto rotulo="DV beneficiário" maxLength={2} {...campo('beneficiario_dv')} />
+              <Texto rotulo="Convênio" maxLength={20} {...campo('convenio')} />
+              <Texto rotulo="Carteira" maxLength={5} {...campo('carteira')} />
+            </>
+          )}
+          {boleto && c.banco_codigo === '001' && <Texto rotulo="Variação da carteira" maxLength={3} {...confTexto('variacao')} />}
+          {boleto && c.banco_codigo === '756' && (
             <>
               <Texto rotulo="Modalidade" maxLength={2} {...confTexto('modalidade')} dica="01 = simples com registro" />
               <Texto rotulo="Número do cliente (API)" maxLength={20} {...confTexto('numeroCliente')} />
@@ -220,6 +228,31 @@ const FormConta: React.FC<{
         </div>
       </Secao>
 
+      {banco?.pix && (
+        <Secao titulo="PIX" descricao="Cobrança no PDV pela API Pix do banco (QR Code na tela e baixa automática)">
+          <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+            <Texto rotulo="Chave PIX" maxLength={77} {...confTexto('chavePix')} className="col-span-2 lg:col-span-3" dica="Recebe as cobranças do PDV. Vazia = a conta não cobra PIX." />
+            <Texto
+              rotulo="CNPJ da instituição (NFC-e)"
+              maxLength={18}
+              inputMode="numeric"
+              {...confTexto('cnpjPsp')}
+              className="col-span-2"
+              dica="Vazio = CNPJ do banco. Em cooperativa, o da cooperativa, se o contador pedir."
+            />
+            {!boleto && (
+              <Selecao
+                rotulo="Ambiente da API"
+                value={String(c.ambiente ?? 2)}
+                onChange={(e) => setC((x) => ({ ...x, ambiente: Number(e.target.value) }))}
+                opcoes={[{ valor: '2', rotulo: AMBIENTES[2] }, { valor: '1', rotulo: AMBIENTES[1] }]}
+              />
+            )}
+          </div>
+        </Secao>
+      )}
+
+      {boleto && (<>
       <Secao titulo="Registro e numeração">
         <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
           <Selecao rotulo="Registro padrão" {...campo('canal')} opcoes={Object.entries(CANAIS).map(([valor, rotulo]) => ({ valor, rotulo }))} />
@@ -274,6 +307,7 @@ const FormConta: React.FC<{
           <Area rotulo="Instruções impressas" rows={3} {...confTexto('instrucoes')} className="col-span-2 lg:col-span-6" dica="Até 4 linhas" />
         </div>
       </Secao>
+      </>)}
 
       <div className="px-4 py-3 flex justify-end gap-2">
         <Botao onClick={onFechar} disabled={enviando}>Cancelar</Botao>
@@ -287,12 +321,23 @@ const FormConta: React.FC<{
 // Credenciais da API
 // ---------------------------------------------------------------------------
 
-const DialogoCredenciais: React.FC<{ conta: Conta; onFechar: () => void; onGravou: (mensagem: string) => void }> = ({ conta, onFechar, onGravou }) => {
+const DialogoCredenciais: React.FC<{ conta: Conta; banco?: Banco; onFechar: () => void; onGravou: (mensagem: string) => void }> = ({ conta, banco, onFechar, onGravou }) => {
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
   const [chaveAplicacao, setChaveAplicacao] = useState('');
+  /** .pfx (com senha) ou, em PEM, o .crt e o .key (Itaú, Inter) */
   const [certificado, setCertificado] = useState<File | null>(null);
+  const [pem, setPem] = useState<File[]>([]);
   const [senha, setSenha] = useState('');
+  const escolher = (f: File) => {
+    if (/\.(pfx|p12)$/i.test(f.name)) {
+      setCertificado(f);
+      setPem([]);
+    } else {
+      setCertificado(null);
+      setPem((atual) => [...atual.filter((x) => x.name !== f.name), f].slice(-2));
+    }
+  };
   const [removendo, setRemovendo] = useState(false);
   const acao = useAcao();
   const tem = !!conta.tem_credenciais;
@@ -305,6 +350,7 @@ const DialogoCredenciais: React.FC<{ conta: Conta; onFechar: () => void; onGravo
         clientSecret: clientSecret || undefined,
         chaveAplicacao: chaveAplicacao || undefined,
         ...(certificado ? { certificadoBase64: await api.lerArquivoBase64(certificado), certificadoNome: certificado.name, certificadoSenha: senha } : {}),
+        ...(pem.length ? { certificadoPem: (await Promise.all(pem.map((f) => f.text()))).join('\n'), certificadoNome: pem.map((f) => f.name).join(' + ') } : {}),
       });
       onGravou('Credenciais gravadas.');
     });
@@ -335,18 +381,21 @@ const DialogoCredenciais: React.FC<{ conta: Conta; onFechar: () => void; onGravo
     >
       {acao.erro && <AvisoErro mensagem={acao.erro} onFechar={() => acao.setErro(null)} />}
       <Texto rotulo="client_id" required autoFocus value={clientId} onChange={(e) => setClientId(e.target.value)} />
-      <Texto rotulo="client_secret" type="password" autoComplete="new-password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} dica={mantem} />
-      {conta.banco_codigo === '001' && (
-        <Texto rotulo="Chave do aplicativo (gw-dev-app-key)" value={chaveAplicacao} onChange={(e) => setChaveAplicacao(e.target.value)} dica={mantem} />
+      {banco?.rotuloSegredo !== null && (
+        <Texto rotulo={banco?.rotuloSegredo || 'client_secret'} type="password" autoComplete="new-password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} dica={mantem} />
+      )}
+      {banco?.rotuloChave && (
+        <Texto rotulo={banco.rotuloChave} value={chaveAplicacao} onChange={(e) => setChaveAplicacao(e.target.value)} dica={mantem} />
       )}
       <div className="flex items-end gap-2">
-        <EscolherArquivo aceitar=".pfx,.p12" onEscolher={setCertificado}>
+        <EscolherArquivo aceitar=".pfx,.p12,.crt,.cer,.pem,.key" onEscolher={escolher}>
           {(abrir) => (
             <Botao icone={<Upload className="w-3.5 h-3.5" />} onClick={abrir}>
-              {certificado ? certificado.name : 'Certificado .pfx'}
+              {certificado ? certificado.name : pem.length ? pem.map((f) => f.name).join(' + ') : 'Certificado (.pfx, ou .crt e .key)'}
             </Botao>
           )}
         </EscolherArquivo>
+        {pem.length === 1 && <span className="text-xs text-stone-500 pb-2">Escolha também o outro arquivo (.crt ou .key).</span>}
         {certificado && (
           <Texto rotulo="Senha do certificado" type="password" autoComplete="new-password" required value={senha} onChange={(e) => setSenha(e.target.value)} className="flex-1" />
         )}
@@ -354,7 +403,7 @@ const DialogoCredenciais: React.FC<{ conta: Conta; onFechar: () => void; onGravo
       <Confirmacao
         aberto={removendo}
         titulo="Remover as credenciais da API?"
-        mensagem="A conta deixa de registrar e consultar boletos pela API até que sejam cadastradas de novo."
+        mensagem="A conta deixa de usar a API do banco (boletos e PIX) até que sejam cadastradas de novo."
         rotuloConfirmar="Remover"
         onConfirmar={() => {
           setRemovendo(false);

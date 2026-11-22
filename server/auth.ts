@@ -72,7 +72,8 @@ export function lerToken(token: string, agoraMs = Date.now()): { uid: number; em
 
   try {
     const dados = JSON.parse(Buffer.from(corpo, 'base64url').toString('utf8'));
-    if (!dados?.uid || !dados?.emp || Number(dados.exp) < agoraMs) return null;
+    // Empresa 0 existe no ERP (a de demonstração/testes): vale qualquer id inteiro, inclusive 0
+    if (!dados?.uid || !Number.isInteger(dados?.emp) || dados.emp < 0 || Number(dados.exp) < agoraMs) return null;
     return { uid: Number(dados.uid), emp: Number(dados.emp) };
   } catch {
     return null;

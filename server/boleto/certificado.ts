@@ -1,5 +1,5 @@
 /**
- * Certificado digital A1 (.pfx / .p12).
+ * Certificado digital A1 (.pfx / .p12) ou PEM (certificado + chave).
  *
  * O arquivo é aberto com node-forge e convertido para PEM. Isso resolve dois
  * problemas de uma vez: o OpenSSL 3 embutido no Node recusa PFX cifrado com
@@ -97,8 +97,35 @@ export function carregarPfx(pfx: Buffer, senha: string): CertificadoCarregado {
     .filter(Boolean) as forge.pki.Certificate[];
 
   if (!certs.length) throw new Error('O arquivo não contém nenhum certificado.');
+  return montar(chavePrivadaPem, (bagChave.key as any).n?.toString(16), certs);
+}
 
-  const modulo = (bagChave.key as any).n?.toString(16);
+/**
+ * Certificado e chave em PEM no mesmo texto (o .crt e o .key emendados), como Itaú e Inter entregam.
+ * A chave precisa estar sem senha.
+ */
+export function carregarPem(textoPem: string): CertificadoCarregado {
+  const chave = textoPem.match(/-----BEGIN ([A-Z ]*)PRIVATE KEY-----[\s\S]+?-----END \1PRIVATE KEY-----/);
+  if (!chave) throw new Error('Falta a chave privada (.key) junto com o certificado.');
+  if (/ENCRYPTED/.test(chave[1])) throw new Error('A chave privada está cifrada: exporte a chave sem senha.');
+  const certs = (textoPem.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g) || []).map((c) => {
+    try {
+      return forge.pki.certificateFromPem(c);
+    } catch (err: any) {
+      throw new Error(`Certificado PEM inválido: ${err?.message || err}`);
+    }
+  });
+  if (!certs.length) throw new Error('Falta o certificado (.crt/.pem) junto com a chave.');
+  let modulo: string | undefined;
+  try {
+    modulo = (forge.pki.privateKeyFromPem(chave[0]) as any).n?.toString(16);
+  } catch {
+    // Chave EC: o forge não lê, mas o TLS do Node usa o PEM como está; o titular fica sendo o primeiro certificado
+  }
+  return montar(chave[0], modulo, certs);
+}
+
+function montar(chavePrivadaPem: string, modulo: string | undefined, certs: forge.pki.Certificate[]): CertificadoCarregado {
   const titular =
     certs.find((c) => (c.publicKey as any)?.n?.toString(16) === modulo) || certs[0];
   const cadeia = certs.filter((c) => c !== titular);

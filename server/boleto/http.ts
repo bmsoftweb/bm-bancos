@@ -125,21 +125,22 @@ export function criarClienteApi(o: OpcoesCliente): ClienteApi {
   return {
     credenciais: o.credenciais,
 
-    async oauth({ url, escopo, autenticacao, extras }) {
+    async oauth({ url, escopo, autenticacao, extras, json, semGrantNoCorpo, semSegredo, cabecalhos }) {
       const k = `${o.contaId}|${url}|${escopo || ''}`;
       const guardado = tokens.get(k);
       if (guardado && guardado.ate > Date.now()) return guardado.token;
 
-      const form = new URLSearchParams({ grant_type: 'client_credentials', ...(escopo ? { scope: escopo } : {}), ...extras });
-      const cab: Record<string, string> = { 'Content-Type': 'application/x-www-form-urlencoded' };
+      const campos: Record<string, string> = { ...(semGrantNoCorpo ? {} : { grant_type: 'client_credentials' }), ...(escopo ? { scope: escopo } : {}), ...extras };
+      const cab: Record<string, string> = { 'Content-Type': json ? 'application/json' : 'application/x-www-form-urlencoded', ...cabecalhos };
+      const segredo = semSegredo ? '' : o.credenciais.clientSecret;
       if (autenticacao === 'basic') {
-        cab.Authorization = `Basic ${Buffer.from(`${o.credenciais.clientId}:${o.credenciais.clientSecret}`).toString('base64')}`;
+        cab.Authorization = `Basic ${Buffer.from(`${o.credenciais.clientId}:${segredo}`).toString('base64')}`;
       } else {
-        form.set('client_id', o.credenciais.clientId);
-        if (o.credenciais.clientSecret) form.set('client_secret', o.credenciais.clientSecret);
+        campos.client_id = o.credenciais.clientId;
+        if (segredo) campos.client_secret = segredo;
       }
 
-      const r = await comLog('token', 'POST', url, form.toString(), cab);
+      const r = await comLog('token', 'POST', url, json ? JSON.stringify(campos) : new URLSearchParams(campos).toString(), cab);
       const token = r.corpo?.access_token;
       if (r.status < 200 || r.status >= 300 || !token) {
         throw new Error(`O banco recusou as credenciais (${r.status}): ${resumo(r.corpo, r.texto) || 'sem detalhe'}`);

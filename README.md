@@ -64,6 +64,9 @@ Toda chamada leva `Authorization: Bearer <chave>`, com a chave criada em **Chave
 | `POST` | `/api/extratos` | Importa OFX: `{ contaId, nomeArquivo, conteudoBase64 }` |
 | `POST` | `/api/retornos` | Importa retorno CNAB: `{ contaId, nomeArquivo, conteudoBase64 }` |
 | `POST` | `/api/remessas` | Gera a remessa da conta: `{ contaId }` |
+| `POST` | `/api/pix/cobrancas` | Cobrança PIX imediata (PDV): `{ valor, referencia?, descricao?, contaId?, expiracao? }` (expiração em segundos, padrão 600). Sem `contaId`, usa a única conta ativa com **Chave PIX**. Devolve `{ contaId, banco, cnpj, cobranca: { txid, status, valor, pixCopiaECola } }` (`cnpj` = instituição que recebe, para a NFC-e). Bancos: 001 BB, 341 Itaú, 237 Bradesco, 033 Santander, 104 Caixa, 756 Sicoob, 748 Sicredi, 077 Inter, 041 Banrisul, 336 C6, 364 Efí (tabela em `server/bancos/pix.ts`). |
+| `GET` | `/api/pix/cobrancas/:contaId/:txid` | Situação: `ATIVA`, `CONCLUIDA` (paga, com `endToEndId` e `pagoEm`) ou `REMOVIDA_*` |
+| `POST` | `/api/pix/cobrancas/:contaId/:txid/cancelar` | Tira a cobrança do ar; se já foi paga, devolve `CONCLUIDA` |
 
 Exemplo de emissão:
 
